@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Room } from "@/lib/room";
 import { QUALITY, displayOptions } from "@/lib/rtc";
+import Chat, { speak, useTts } from "./Chat";
 
 const SURFACE_LABEL = { window: "janela", browser: "aba", monitor: "tela inteira" };
 
@@ -73,9 +74,14 @@ function RoomView({ room, name }) {
   const roomRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState("");
+  const tts = useTts();
+  const ttsRef = tts.ref;
 
   useEffect(() => {
     const r = new Room(room, name, force);
+    r.onChat = (msg) => {
+      if (msg.tts && ttsRef.current.on) speak(msg, ttsRef.current.volume);
+    };
     roomRef.current = r;
     r.start();
     force();
@@ -85,7 +91,7 @@ function RoomView({ room, name }) {
       window.removeEventListener("pagehide", bye);
       r.destroy();
     };
-  }, [room, name]);
+  }, [room, name, ttsRef]);
 
   const r = roomRef.current;
   if (!r) return null;
@@ -238,8 +244,12 @@ function RoomView({ room, name }) {
             </ul>
           </div>
 
-          <div className="panel">
-            <h3>Qualidade da sua transmissão</h3>
+          <Chat room={r} selfId={r.selfId} online={r.status === "online"} tts={tts} />
+
+          <details className="panel">
+            <summary>
+              <h3>Qualidade da sua transmissão</h3>
+            </summary>
             <select value={r.quality} onChange={(e) => r.setQuality(e.target.value)}>
               {Object.keys(QUALITY).map((k) => (
                 <option key={k} value={k}>
@@ -256,7 +266,7 @@ function RoomView({ room, name }) {
               </button>
             </div>
             <p className="hint">Você envia uma cópia pra cada pessoa que te assiste. Com muita gente, baixe a qualidade.</p>
-          </div>
+          </details>
 
           {r.status === "conectando" && r.members.length > 0 && <p className="hint">Reconectando à sala…</p>}
           {r.error && <p className="err">{r.error}</p>}

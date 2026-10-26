@@ -84,6 +84,14 @@ vercel --prod   (publica no endereço definitivo)
 3. Quem quiser mostrar algo clica **Transmitir uma janela** → no seletor escolhe **Janela** (ou **Aba**) e deixa marcado **"Compartilhar áudio"**.
 4. Na lista "Na sala", clique **Assistir** em quem estiver AO VIVO. Dá pra abrir várias ao mesmo tempo; cada tela tem volume próprio, tela cheia (duplo clique) e ✕ para fechar.
 
+### Chat e TTS
+
+- O chat fica na lateral. Quem entra depois vê as últimas 100 mensagens. Links viram clicáveis.
+- `/tts seu texto` → a mensagem é lida em voz alta ("fulano disse: …") para todo mundo que estiver com **TTS** ligado.
+- Cada pessoa controla o próprio TTS no topo do chat: liga/desliga (fica salvo no navegador), volume e ⏹ para calar na hora.
+- Anti-spam: um `/tts` a cada 5 s por pessoa (o excesso aparece com 🔇 e não é lido), até 200 letras por TTS, e no máximo 5 mensagens a cada 5 s.
+- A voz é a do próprio navegador/sistema de quem ouve (no Chrome/Edge do Windows vem uma voz em português).
+
 ## Como o áudio fica preso à janela
 
 O site chama `getDisplayMedia` com:
