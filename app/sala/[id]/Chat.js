@@ -1,13 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-const COLORS = ["#9a8dff", "#3ecf8e", "#f5b84a", "#ff7a90", "#5cc8ff", "#e58bff", "#ffb36b", "#7ee0c3"];
-function colorFor(id = "") {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return COLORS[Math.abs(h) % COLORS.length];
-}
+import { colorFor } from "@/lib/colors";
+import { IconMute, IconSend, IconStop, IconVolume } from "../../icons";
 
 function load(key, fallback) {
   try {
@@ -90,41 +85,58 @@ export default function Chat({ room, selfId, online, tts }) {
   const typingTts = /^\/t?t?s?$/i.test(text) || /^\/tts\b/i.test(text);
 
   return (
-    <div className="panel chat">
-      <div className="chat-head">
-        <h3>Chat</h3>
+    <section className="panel chat" aria-labelledby="chat-t">
+      <div className="panel-head">
+        <h2 id="chat-t" className="panel-title">
+          Chat
+        </h2>
         <div className="tts-ctl">
           <label className="switch" title="Ouvir mensagens /tts">
             <input type="checkbox" checked={tts.on} onChange={(e) => tts.setOn(e.target.checked)} />
-            <span>TTS</span>
+            Ouvir TTS
           </label>
           {tts.on && (
             <>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={tts.volume}
-                onChange={(e) => tts.setVolume(parseFloat(e.target.value))}
-                title="Volume do TTS"
-              />
-              <button className="btn ghost sm" onClick={() => window.speechSynthesis?.cancel()} title="Calar o TTS agora">
-                ⏹
+              <label style={{ display: "flex" }}>
+                <span className="sr-only">Volume do TTS</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={tts.volume}
+                  onChange={(e) => tts.setVolume(parseFloat(e.target.value))}
+                />
+              </label>
+              <button
+                className="icon-btn boxed"
+                onClick={() => window.speechSynthesis?.cancel()}
+                aria-label="Calar o TTS agora"
+                title="Calar o TTS agora"
+              >
+                <IconStop />
               </button>
             </>
           )}
         </div>
       </div>
 
-      <div className="msgs" ref={listRef} onScroll={onScroll}>
+      <div className="msgs" ref={listRef} onScroll={onScroll} aria-live="polite">
         {messages.length === 0 && <p className="hint">Nenhuma mensagem ainda. Use /tts texto pra falar em voz alta.</p>}
         {messages.map((m) => (
-          <div key={m.id} className={`msg ${m.from === selfId ? "me" : ""}`}>
+          <div key={m.id} className={`msg ${m.tts ? "tts" : ""} ${m.from === selfId ? "me" : ""}`}>
             <span className="time">{new Date(m.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-            <b style={{ color: colorFor(m.from) }}>{m.name}</b>{" "}
-            {m.tts && <span className="ttsflag" title="Mensagem falada (TTS)">🔊</span>}
-            {m.ttsBlocked && <span className="ttsflag off" title="TTS ignorado: espere 5 s entre TTS">🔇</span>}
+            <b style={{ color: colorFor(m.name).bg }}>{m.name}</b>
+            {m.tts && (
+              <span className="ttsflag" role="img" aria-label="falado em voz alta" title="Mensagem falada (TTS)">
+                <IconVolume size={13} />
+              </span>
+            )}
+            {m.ttsBlocked && (
+              <span className="ttsflag off" role="img" aria-label="TTS ignorado" title="TTS ignorado: espere 5 s entre TTS">
+                <IconMute size={13} />
+              </span>
+            )}
             <span className="txt">
               <Linkify text={m.text} />
             </span>
@@ -135,18 +147,25 @@ export default function Chat({ room, selfId, online, tts }) {
       <form onSubmit={send} className="chat-form">
         {typingTts && (
           <div className="cmd-hint">
-            <b>/tts</b> &lt;texto&gt; — lê em voz alta pra todo mundo com TTS ligado
+            <b>/tts</b> texto · lê em voz alta pra quem tem TTS ligado
           </div>
         )}
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={online ? "Mensagem…  (/tts texto pra falar)" : "Conectando…"}
-          maxLength={510}
-          disabled={!online}
-        />
+        <label>
+          <span className="sr-only">Mensagem</span>
+          <input
+            className={`input ${typingTts ? "cmd" : ""}`}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={online ? "Mensagem… (/tts pra falar)" : "Conectando…"}
+            maxLength={510}
+            disabled={!online}
+          />
+        </label>
+        <button className="btn primary send" type="submit" aria-label="Enviar" disabled={!online || !text.trim()}>
+          <IconSend />
+        </button>
       </form>
-    </div>
+    </section>
   );
 }
 

@@ -102,7 +102,18 @@ O site chama `getDisplayMedia` com:
 | `windowAudio` | `"window"` | ao escolher uma janela, captura só o som dela |
 | `displaySurface` | `"window"` | abre o seletor já na aba "Janela" |
 
-E por garantia: se alguém escolher **tela inteira** e o navegador mesmo assim entregar áudio, o site descarta a trilha de áudio.
+E por garantia: se alguém escolher **tela inteira** pelo botão de janela e o navegador mesmo assim entregar áudio, o site descarta a trilha de áudio.
+
+### Tela inteira sem o som do Discord
+
+O navegador só oferece duas opções de som para tela inteira: o som do PC inteiro (que inclui o Discord) ou nada. Por isso o **"Transmitir tela inteira"** funciona em duas etapas:
+
+1. Escolhe a tela: vai só o vídeo.
+2. Em **"Som da transmissão"**, clique **+ Som de uma janela** e escolha o jogo, o player etc. (com **"Compartilhar áudio"** marcado). Dá pra adicionar várias janelas; os sons são misturados numa trilha só. Cada um tem ✕ pra tirar.
+
+O Discord só entra se você escolher a janela dele. Também existe **+ Som do PC inteiro** (`systemAudio: "include"` + `restrictOwnAudio`, que tira o som do próprio telinha), mas aí o Discord vai junto e quem está na call se ouve de volta.
+
+Cada som escolhido abre mais um aviso de compartilhamento do Chrome (pode clicar em **Ocultar**). Som de janela precisa de Chrome/Edge atualizado no Windows; se não aparecer a opção, escolha uma **aba**.
 
 ### Onde funciona
 
