@@ -129,8 +129,23 @@ Quem **assiste** pode usar qualquer navegador moderno.
 
 ## Como a sala funciona por dentro
 
-- O primeiro a entrar vira o "anfitrião" invisível da sala: ele só guarda a lista de quem está lá e quem está ao vivo. Se ele sair, outro assume sozinho em ~2 s.
-- Para assistir alguém você abre conexão direta com essa pessoa. Quem transmite manda **uma cópia para cada pessoa que abriu a transmissão dele**; quem não abriu não gasta nada.
+- O primeiro a entrar vira o "anfitrião" invisível da sala: ele só guarda a lista de quem está lá, quem está ao vivo e o histórico do chat. Se ele sair, outro assume sozinho.
+- O anfitrião confere de tempos em tempos se ainda é o dono da sala; se perdeu o posto (queda de rede, PC dormiu), ele larga a sala e todo mundo se junta no anfitrião certo.
+- O anfitrião tem **3 lugares**. Se quem estava no lugar principal caiu de forma abrupta, o servidor gratuito de conexão ainda acha que ele existe por um tempo (um "fantasma") e ninguém consegue falar com ele. Em vez de travar, a sala se refaz no lugar reserva em ~30 s. Quando o lugar principal volta a funcionar, todo mundo se junta numa sala só, com o histórico do chat junto.
+- Para assistir alguém você abre conexão direta com essa pessoa. Quem transmite manda **uma cópia para cada pessoa que abriu a transmissão dele**; quem não abriu não gasta nada. A transmissão não depende do anfitrião: se ele cair, quem está assistindo continua assistindo.
+- O código da sala é normalizado: `Sala do Zé`, `sala-do-ze` e `SALA DO ZE` são a mesma sala.
+
+## Se travar, demorar ou a tela ficar preta
+
+O telinha tenta se recuperar sozinho: se o vídeo de alguém não chega (ou chega sem imagem), ele tenta de novo e, se não der, mostra "Não deu pra conectar" com o botão **Tentar de novo**.
+
+- **Pessoas na mesma sala que não se veem / ficam "Reconectando…"**: quase sempre é internet que bloqueia conexão direta (4G, CGNAT). Configure o **TURN** (seção abaixo). Quem não consegue falar com a sala vê o aviso "Não estou conseguindo falar com quem abriu a sala".
+- **Tela preta mesmo conectando**: quem transmite recebe o aviso "Sua captura está saindo preta". Causas comuns:
+  - **Netflix, Prime, Disney+** e afins bloqueiam a captura. No Chrome, desative "Usar aceleração de hardware" (Configurações → Sistema) e reabra o navegador.
+  - **Jogo em tela cheia exclusiva**: troque pra **janela sem bordas** nas opções de vídeo do jogo.
+  - **Janela minimizada** não é capturada: deixe aberta (pode ficar atrás de outras).
+- **Demora pra entrar**: a tela de espera mostra a etapa. Parado em "Conectando ao servidor…" é o servidor gratuito do PeerJS lento ou fora do ar; o telinha continua tentando sozinho.
+- Pra conferir se o TURN está ativo dentro da sala: abra **Qualidade da sua transmissão**; deve aparecer "Servidor de retransmissão (TURN): **ativo**".
 
 ## Limites e configurações opcionais
 

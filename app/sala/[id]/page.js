@@ -8,6 +8,8 @@ import { QUALITY, displayOptions } from "@/lib/rtc";
 import { colorFor, initial } from "@/lib/colors";
 import { ScreenMix, audioSourceOptions, screenVideoOptions } from "@/lib/capture";
 import Chat, { speak, useTts } from "./Chat";
+import { useBlackFrames } from "@/lib/useBlackFrames";
+import { normalizeRoom, turnStatus } from "@/lib/rtc";
 import { IconCopy, IconFull, IconMute, IconScreen, IconVolume, IconX, Logo } from "../../icons";
 
 const SURFACE_LABEL = { window: "janela", browser: "aba", monitor: "tela inteira" };
@@ -37,7 +39,12 @@ function Avatar({ name, size = 30 }) {
 // ---------- entrada ----------
 export default function RoomPage() {
   const { id } = useParams();
-  const room = String(id).toLowerCase();
+  const room = normalizeRoom(id);
+  // link com acento/maiúscula/espaço: troca só o endereço exibido pela versão
+  // limpa (sem navegar: navegar remontaria a sala e derrubaria a conexão)
+  useEffect(() => {
+    if (room && String(id) !== room) window.history.replaceState(null, "", `/sala/${room}`);
+  }, [id, room]);
   const [name, setName] = useState(null);
   const [draft, setDraft] = useState("");
 
@@ -48,6 +55,28 @@ export default function RoomPage() {
     // Senão, pede um clique: isso também libera o som automático no navegador.
     if (saved && navigator.userActivation?.hasBeenActive) setName(saved);
   }, []);
+
+  if (!room) {
+    return (
+      <div className="join-page">
+        <header>
+          <Link href="/" className="logo">
+            <Logo />
+            <b>telinha</b>
+          </Link>
+        </header>
+        <main>
+          <div className="join-card">
+            <b>Esse código de sala não é válido.</b>
+            <p className="hint">Use só letras, números e hífen, tipo gato-1234.</p>
+            <Link href="/" className="btn primary lg">
+              Voltar pro início
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (!name) {
     return (
@@ -199,15 +228,26 @@ function RoomView({ room, name }) {
         <main className="stage-area">
           {tiles.length === 0 ? (
             <div className="empty-stage">
-              {r.status === "conectando" && !r.members.length ? (
-                <p>Entrando na sala…</p>
+              {r.phase !== "online" && !r.members.length ? (
+                <Loading phase={r.phase} since={r.startedAt} error={r.error} trouble={r.hubTrouble} />
               ) : live.length === 0 ? (
                 <>
                   <span style={{ color: "var(--faint)" }}>
                     <IconScreen />
                   </span>
-                  <h2>Ninguém transmitindo ainda</h2>
-                  <p>Qualquer um na sala pode ir ao vivo. Manda o link pros amigos ou comece você.</p>
+                  {r.hubTrouble ? (
+                    <>
+                      <h2>Procurando a sala…</h2>
+                      <p role="alert">
+                        <HubTroubleText />
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2>Ninguém transmitindo ainda</h2>
+                      <p>Qualquer um na sala pode ir ao vivo. Manda o link pros amigos ou comece você.</p>
+                    </>
+                  )}
                   {canShare && !r.local && (
                     <button className="btn primary" onClick={() => share("window")} disabled={!r.selfId}>
                       Transmitir uma janela
@@ -295,6 +335,7 @@ function RoomView({ room, name }) {
 
             {r.local ? (
               <>
+                <BlackCaptureWarning stream={r.local.stream} surface={r.local.surface} />
                 {r.local.mix ? <AudioSources mix={r.local.mix} onAdd={addAudio} /> : <AudioBadge local={r.local} />}
                 <p className="hint">
                   {r.watchers.size === 0
@@ -393,10 +434,21 @@ function RoomView({ room, name }) {
                 </button>
               </div>
               <p className="hint">Você envia uma cópia pra cada pessoa que te assiste. Com muita gente, baixe a qualidade.</p>
+              <p className="hint">
+                Servidor de retransmissão (TURN): <b>{turnStatus}</b>
+                {turnStatus === "não configurado" && " (pessoas em 4G/CGNAT podem não conectar; veja o README)"}
+              </p>
             </details>
           )}
 
-          {r.status === "conectando" && r.members.length > 0 && <p className="hint">Reconectando à sala…</p>}
+          {r.hubTrouble && r.status === "online" && (
+            <p className="hint" role="alert">
+              <HubTroubleText />
+            </p>
+          )}
+          {r.status === "conectando" && r.members.length > 0 && (
+            <p className="hint">{r.hubTrouble ? <HubTroubleText /> : "Reconectando à sala…"}</p>
+          )}
           {r.error && <p className="err">{r.error}</p>}
         </aside>
       </div>
@@ -453,6 +505,7 @@ function Tile({ stream, label, self, hasAudio, failed, onRetry, onClose }) {
     else wrapRef.current?.requestFullscreen?.();
   }
 
+  const black = useBlackFrames(self ? null : stream);
   const silent = muted || blocked;
   return (
     <figure className="tile" ref={wrapRef} onDoubleClick={fullscreen}>
@@ -464,6 +517,12 @@ function Tile({ stream, label, self, hasAudio, failed, onRetry, onClose }) {
           <button className="btn primary" onClick={onRetry}>
             Tentar de novo
           </button>
+        </div>
+      )}
+      {black && stream && !failed && (
+        <div className="tile-note" role="status">
+          A imagem de {label} está chegando preta. Geralmente é o app bloqueando a captura (Netflix, Prime, Disney+) ou
+          jogo em tela cheia exclusiva.
         </div>
       )}
       <figcaption>
@@ -567,5 +626,71 @@ function AudioBadge({ local }) {
       Sem áudio. A caixa “Compartilhar áudio” estava desmarcada, ou seu navegador ainda não captura som por janela. Use
       Chrome/Edge atualizado no Windows, ou compartilhe uma <b>aba</b>.
     </p>
+  );
+}
+
+// ---------- não consigo falar com a sala ----------
+function HubTroubleText() {
+  return (
+    <>
+      Não estou conseguindo falar com quem abriu a sala. Ou a pessoa caiu (aí a sala se refaz sozinha em instantes),
+      ou a internet de um de vocês bloqueia conexão direta (o servidor de retransmissão TURN resolve isso; veja o
+      README). Continuo tentando.
+    </>
+  );
+}
+
+// ---------- carregamento ----------
+function Loading({ phase, since, error, trouble }) {
+  const [, tick] = useReducer((x) => x + 1, 0);
+  useEffect(() => {
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = Math.floor((Date.now() - since) / 1000);
+  return (
+    <>
+      <span className="spinner big" aria-hidden="true" />
+      <h2>{phase === "servidor" ? "Conectando ao servidor…" : "Entrando na sala…"}</h2>
+      {error ? (
+        <p role="alert">{error}</p>
+      ) : trouble ? (
+        <p role="alert">
+          <HubTroubleText />
+        </p>
+      ) : secs >= 6 ? (
+        <p>
+          {phase === "servidor"
+            ? "O servidor gratuito de conexão está lento agora. Continuo tentando sozinho."
+            : "Procurando quem já está na sala. Se você for o primeiro, a sala abre em instantes."}
+        </p>
+      ) : null}
+      {secs >= 20 && <p className="hint">Se travar aqui, recarregue a página.</p>}
+    </>
+  );
+}
+
+// ---------- captura saindo preta (quem transmite) ----------
+function BlackCaptureWarning({ stream, surface }) {
+  const black = useBlackFrames(stream);
+  if (!black) return null;
+  return (
+    <div className="black-warn" role="alert">
+      <b>Sua captura está saindo preta.</b>
+      <ul>
+        <li>
+          <b>Netflix, Prime, Disney+</b> e afins bloqueiam a captura. No Chrome, desative “Usar aceleração de
+          hardware” (Configurações → Sistema) e reabra o navegador.
+        </li>
+        <li>
+          <b>Jogo em tela cheia</b>: mude para <b>janela sem bordas</b> nas opções de vídeo do jogo.
+        </li>
+        {surface === "window" && (
+          <li>
+            Janela <b>minimizada</b> não é capturada: deixe ela aberta (pode ficar atrás de outras).
+          </li>
+        )}
+      </ul>
+    </div>
   );
 }
