@@ -239,6 +239,8 @@ function RoomView({ room, name }) {
                     stream={self ? r.local?.stream : e.stream}
                     label={self ? "Você (prévia)" : m?.name || "…"}
                     hasAudio={self ? r.local?.hasAudio : m?.hasAudio}
+                    failed={!self && !!e.failed}
+                    onRetry={() => r.watch(id)}
                     onClose={() => r.unwatch(id)}
                   />
                 );
@@ -403,7 +405,7 @@ function RoomView({ room, name }) {
 }
 
 // ---------- uma transmissão ----------
-function Tile({ stream, label, self, hasAudio, onClose }) {
+function Tile({ stream, label, self, hasAudio, failed, onRetry, onClose }) {
   const videoRef = useRef(null);
   const wrapRef = useRef(null);
   const [vol, setVol] = useState(1);
@@ -455,7 +457,15 @@ function Tile({ stream, label, self, hasAudio, onClose }) {
   return (
     <figure className="tile" ref={wrapRef} onDoubleClick={fullscreen}>
       <video ref={videoRef} autoPlay playsInline />
-      {!stream && <div className="loading">Conectando…</div>}
+      {!stream && !failed && <div className="loading">Conectando…</div>}
+      {failed && (
+        <div className="loading failed">
+          <p>Não deu pra conectar com {label}. A rede de um de vocês pode estar bloqueando a conexão.</p>
+          <button className="btn primary" onClick={onRetry}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
       <figcaption>
         <span className="pill-live">AO VIVO</span>
         <span className="tag">{label}</span>

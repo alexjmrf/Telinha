@@ -139,10 +139,19 @@ Quem **assiste** pode usar qualquer navegador moderno.
   - `NEXT_PUBLIC_PEER_HOST` = `seu.servidor.com`
   - `NEXT_PUBLIC_PEER_PORT` = `443`
   - `NEXT_PUBLIC_PEER_PATH` = `/`
-- Redes muito fechadas (4G com CGNAT, rede de empresa) podem precisar de um TURN próprio:
+### TURN (necessário pra muita gente conseguir entrar)
 
-  ```
-  NEXT_PUBLIC_ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:SEU_TURN:3478","username":"u","credential":"p"}]
-  ```
+Quem está em 4G, CGNAT (comum em operadoras no Brasil) ou rede de empresa não consegue conexão direta. Aí o vídeo e a própria sala passam por um servidor **TURN**. Sem ele, essas pessoas ficam "Reconectando…", não veem a tela ou não se enxergam na sala.
 
-  (Metered, Cloudflare Calls e Twilio têm TURN com plano grátis.) Depois de mudar variáveis, faça **Redeploy** na Vercel.
+O site pega credenciais TURN em `/api/ice`. Configure **um** provedor na Vercel (**Settings → Environment Variables**) e faça **Redeploy**:
+
+- **Cloudflare** (1000 GB/mês grátis): no painel da Cloudflare → **Realtime → TURN Server → Create**. Copie o *Turn Token ID* e o *API Token*:
+  - `CLOUDFLARE_TURN_KEY_ID` = Turn Token ID
+  - `CLOUDFLARE_TURN_API_TOKEN` = API Token
+- **ou Metered** (plano grátis): crie um app em https://www.metered.ca/stun-turn e pegue a API key:
+  - `METERED_DOMAIN` = `seuapp.metered.live`
+  - `METERED_API_KEY` = a chave
+
+Pra conferir: abra `https://seu-site.vercel.app/api/ice`. Se aparecer `"warn":"turn-not-configured"` ou `"turn-failed"`, o TURN não está ativo.
+
+Também dá pra fixar a lista na mão com `NEXT_PUBLIC_ICE_SERVERS` (JSON), que tem prioridade sobre `/api/ice`.
