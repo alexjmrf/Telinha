@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { randomRoom } from "@/lib/rtc";
+import { normalizeRoom, randomRoom } from "@/lib/rtc";
 import { colorFor } from "@/lib/colors";
 import { IconChat, IconGrid, IconVolume, IconVolumeLoud, Logo } from "./icons";
 
@@ -31,7 +31,7 @@ export default function Home() {
 
   function join(e) {
     e.preventDefault();
-    const c = code.trim().toLowerCase().replace(/.*\/sala\//, "").replace(/\/.*/, "");
+    const c = normalizeRoom(code.trim().replace(/.*\/sala\//i, "").replace(/[/?#].*/, ""));
     if (!c) return;
     saveName();
     router.push(`/sala/${c}`);

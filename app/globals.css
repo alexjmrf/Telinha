@@ -316,6 +316,22 @@ details.panel[open] > summary::after { content: "▾"; }
 .seg button { height: 38px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
 .seg button.on { background: var(--surface-2); color: var(--text); }
 
+/* ---------- estados de conexão ---------- */
+.tile-note {
+  position: absolute; left: 12px; right: 12px; bottom: 64px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(14, 15, 20, 0.9); border: 1px solid var(--line-2); color: var(--warn); font-size: 13px;
+}
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--line-2); border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite; flex: none;
+}
+.spinner.big { width: 38px; height: 38px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+.black-warn { padding: 12px; border-radius: 12px; background: #221a0c; border: 1px solid #5b4416; color: var(--warn); font-size: 13px; }
+.black-warn b { color: #ffd894; }
+.black-warn ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
+
 /* ---------- celular ---------- */
 @media (max-width: 860px) {
   .topbar { padding: 10px 14px; }
