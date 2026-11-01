@@ -4,13 +4,28 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Room } from "@/lib/room";
-import { QUALITY, displayOptions } from "@/lib/rtc";
+import { QUALITY, cameraOptions, displayOptions } from "@/lib/rtc";
 import { colorFor, initial } from "@/lib/colors";
 import { ScreenMix, audioSourceOptions, screenVideoOptions } from "@/lib/capture";
 import Chat, { speak, useTts } from "./Chat";
-import { IconCopy, IconFull, IconMute, IconScreen, IconVolume, IconX, Logo } from "../../icons";
+import { IconCopy, IconFull, IconMute, IconVolume, IconX, Logo } from "../../icons";
 
 const SURFACE_LABEL = { window: "janela", browser: "aba", monitor: "tela inteira" };
+
+const CAMERA_ERRORS = {
+  NotAllowedError: "Sem permissão pra usar a câmera. Libere no cadeado ao lado do endereço do site.",
+  NotFoundError: "Nenhuma câmera encontrada.",
+  NotReadableError: "A câmera está sendo usada por outro programa (Discord, OBS…). Feche e tente de novo.",
+  OverconstrainedError: "Essa câmera não aceitou a configuração. Tente outra câmera.",
+};
+
+async function listCameras() {
+  try {
+    return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+  } catch {
+    return [];
+  }
+}
 
 function load(key, fallback) {
   try {
@@ -28,7 +43,7 @@ function save(key, value) {
 function Avatar({ name, size = 30 }) {
   const c = colorFor(name);
   return (
-    <span className="avatar" aria-hidden="true" style={{ background: c.bg, color: c.fg, width: size, height: size }}>
+    <span className="avatar" aria-hidden="true" style={{ background: c.bg, color: c.fg, width: size, height: size, fontSize: Math.round(size * 0.42) }}>
       {initial(name)}
     </span>
   );
@@ -103,11 +118,17 @@ function RoomView({ room, name }) {
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState("");
   const [canShare, setCanShare] = useState(true);
+  const [canCam, setCanCam] = useState(true);
+  const [camMic, setCamMic] = useState(false);
+  const [camCount, setCamCount] = useState(0);
+  const [focus, setFocus] = useState(null); // quadro em destaque
   const tts = useTts();
   const ttsRef = tts.ref;
 
   useEffect(() => {
     setCanShare(!!navigator.mediaDevices?.getDisplayMedia);
+    setCanCam(!!navigator.mediaDevices?.getUserMedia);
+    setCamMic(load("telinha:cammic", "0") === "1");
     const r = new Room(room, name, force);
     r.onChat = (msg) => {
       if (msg.tts && ttsRef.current.on) speak(msg, ttsRef.current.volume);
@@ -143,6 +164,40 @@ function RoomView({ room, name }) {
     }
   }
 
+  async function shareCamera(deviceId, mic = camMic) {
+    setErr("");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia(cameraOptions(mic, deviceId));
+      r.startCam(s);
+      // a quantidade de câmeras só aparece certa depois da permissão
+      setCamCount((await listCameras()).length);
+    } catch (e) {
+      setErr(CAMERA_ERRORS[e.name] || "Não deu pra abrir a câmera: " + e.message);
+      if (r.cam && !r.cam.stream.getVideoTracks().some((t) => t.readyState === "live")) r.stopCam();
+    }
+  }
+
+  // reabre a câmera (outra câmera ou microfone ligado/desligado).
+  // Celular costuma não abrir a mesma câmera duas vezes: solta a atual antes.
+  function reopenCamera(deviceId, mic) {
+    r.cam?.stream.getTracks().forEach((t) => t.stop());
+    shareCamera(deviceId, mic);
+  }
+
+  async function nextCamera() {
+    const cams = await listCameras();
+    if (cams.length < 2) return;
+    const cur = r.cam?.stream.getVideoTracks()[0]?.getSettings().deviceId;
+    const next = cams[(cams.findIndex((c) => c.deviceId === cur) + 1) % cams.length];
+    reopenCamera(next.deviceId, camMic);
+  }
+
+  function toggleCamMic(on) {
+    setCamMic(on);
+    save("telinha:cammic", on ? "1" : "0");
+    if (r.cam) reopenCamera(r.cam.stream.getVideoTracks()[0]?.getSettings().deviceId, on);
+  }
+
   async function addAudio(kind) {
     setErr("");
     let s;
@@ -172,12 +227,59 @@ function RoomView({ room, name }) {
   }
 
   const members = r.members.length ? r.members : r.selfId ? [{ id: r.selfId, ...r.stateObj() }] : [];
-  const sorted = [...members].sort((a, b) => b.live - a.live || (a.id === r.selfId ? -1 : b.id === r.selfId ? 1 : 0));
-  const live = sorted.filter((m) => m.live);
-  const byId = Object.fromEntries(members.map((m) => [m.id, m]));
-  const tiles = [...r.watching.entries()];
-  const notWatched = live.filter((m) => !r.watching.has(m.id) && m.id !== r.selfId);
-  const toggleWatch = (id) => (r.watching.has(id) ? r.unwatch(id) : r.watch(id));
+  // eu primeiro, depois quem está ao vivo
+  const sorted = [...members].sort((a, b) => (a.id === r.selfId ? -1 : b.id === r.selfId ? 1 : b.live - a.live));
+
+  // Quadros: primeiro as telas compartilhadas, depois uma por pessoa (câmera ou avatar).
+  const tiles = [];
+  for (const m of sorted) {
+    const me = m.id === r.selfId;
+    if (me ? !r.local : !m.live) continue;
+    const e = me ? null : r.entry(m.id, "screen");
+    tiles.push({
+      key: `${m.id}|screen`,
+      kind: "screen",
+      m,
+      me,
+      e,
+      stream: me ? r.local.stream : e?.stream,
+      hasAudio: !me && m.hasAudio,
+    });
+  }
+  for (const m of sorted) {
+    const me = m.id === r.selfId;
+    const camOn = me ? !!r.cam : !!m.cam;
+    const e = me ? null : r.entry(m.id, "cam");
+    tiles.push({
+      key: `${m.id}|cam`,
+      kind: "cam",
+      m,
+      me,
+      e,
+      camOn,
+      stream: camOn ? (me ? r.cam.stream : e?.stream) : null,
+      hasAudio: !me && camOn && m.camAudio,
+    });
+  }
+  const focused = tiles.find((t) => t.key === focus);
+  const toggleFocus = (k) => setFocus((f) => (f === k ? null : k));
+  const watchScreen = (id) => {
+    r.watch(id, "screen");
+    setFocus(`${id}|screen`); // abriu uma tela: ela vai pro destaque
+  };
+  const tileProps = (t, small = false) => ({
+    t,
+    small,
+    focused: focused?.key === t.key,
+    onClick: () => toggleFocus(t.key),
+    onWatch: () => watchScreen(t.m.id),
+    onUnwatch: () => r.unwatch(t.m.id, "screen"),
+    onRetry: () => r.watch(t.m.id, t.kind),
+  });
+
+  const n = tiles.length;
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+  const gridStyle = { "--cols": cols, "--rows": Math.ceil(n / cols), "--cols-sm": n <= 2 ? 1 : 2 };
 
   return (
     <div className="room">
@@ -197,87 +299,30 @@ function RoomView({ room, name }) {
 
       <div className="room-body">
         <main className="stage-area">
-          {tiles.length === 0 ? (
+          {n === 0 ? (
             <div className="empty-stage">
-              {r.status === "conectando" && !r.members.length ? (
-                <p>Entrando na sala…</p>
-              ) : live.length === 0 ? (
-                <>
-                  <span style={{ color: "var(--faint)" }}>
-                    <IconScreen />
-                  </span>
-                  <h2>Ninguém transmitindo ainda</h2>
-                  <p>Qualquer um na sala pode ir ao vivo. Manda o link pros amigos ou comece você.</p>
-                  {canShare && !r.local && (
-                    <button className="btn primary" onClick={() => share("window")} disabled={!r.selfId}>
-                      Transmitir uma janela
-                    </button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <h2>Ao vivo agora</h2>
-                  <div className="row">
-                    {live.map((m) => (
-                      <button key={m.id} className="btn primary" onClick={() => r.watch(m.id)}>
-                        {m.id === r.selfId ? "Ver minha prévia" : `Assistir ${m.name}`}
-                      </button>
-                    ))}
-                  </div>
-                </>
+              <p>Entrando na sala…</p>
+            </div>
+          ) : focused ? (
+            <div className="focus-view">
+              <div className="focus-main">
+                <Tile key={focused.key} {...tileProps(focused)} />
+              </div>
+              {n > 1 && (
+                <div className="strip" aria-label="Outros quadros">
+                  {tiles.filter((t) => t !== focused).map((t) => <Tile key={t.key} {...tileProps(t, true)} />)}
+                </div>
               )}
             </div>
           ) : (
-            <div className={`tiles n${Math.min(tiles.length, 4)}`}>
-              {tiles.map(([id, e]) => {
-                const self = !!e.self;
-                const m = byId[id];
-                return (
-                  <Tile
-                    key={id}
-                    self={self}
-                    stream={self ? r.local?.stream : e.stream}
-                    label={self ? "Você (prévia)" : m?.name || "…"}
-                    hasAudio={self ? r.local?.hasAudio : m?.hasAudio}
-                    failed={!self && !!e.failed}
-                    onRetry={() => r.watch(id)}
-                    onClose={() => r.unwatch(id)}
-                  />
-                );
-              })}
+            <div className="grid" style={gridStyle}>
+              {tiles.map((t) => <Tile key={t.key} {...tileProps(t)} />)}
             </div>
           )}
-
-          {tiles.length > 0 &&
-            notWatched.map((m) => (
-              <div key={m.id} className="live-banner">
-                <span className="dot" />
-                <span>
-                  <b>{m.name}</b> também está ao vivo
-                </span>
-                <span className="spacer" />
-                <button className="btn primary" onClick={() => r.watch(m.id)}>
-                  Assistir {m.name}
-                </button>
-              </div>
-            ))}
+          {members.length === 1 && n > 0 && (
+            <p className="hint center">Só você por aqui. Manda o link da sala pros amigos.</p>
+          )}
         </main>
-
-        {live.length > 0 && (
-          <section className="live-chips" aria-labelledby="aovivo">
-            <h2 id="aovivo" className="panel-title">
-              Ao vivo agora
-            </h2>
-            <div className="chips">
-              {live.map((m) => (
-                <button key={m.id} className="chip" aria-pressed={r.watching.has(m.id)} onClick={() => toggleWatch(m.id)}>
-                  <span className="dot" />
-                  {m.id === r.selfId ? "você" : m.name}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
 
         <aside className="side">
           <section className="panel you" aria-labelledby="voce">
@@ -297,16 +342,16 @@ function RoomView({ room, name }) {
               <>
                 {r.local.mix ? <AudioSources mix={r.local.mix} onAdd={addAudio} /> : <AudioBadge local={r.local} />}
                 <p className="hint">
-                  {r.watchers.size === 0
-                    ? "Ninguém te assistindo ainda."
-                    : `Te assistindo: ${[...r.watchers.values()].map((w) => w.name).join(", ")}`}
+                  {r.screenWatchers().length === 0
+                    ? "Ninguém vendo sua tela ainda."
+                    : `Vendo sua tela: ${r.screenWatchers().join(", ")}`}
                 </p>
                 <div className="btn-row">
                   <button className="btn" onClick={() => share(r.local.mode)}>
                     {r.local.mode === "screen" ? "Trocar tela" : "Trocar janela"}
                   </button>
                   <button className="btn danger" onClick={() => r.stopLive()}>
-                    Parar
+                    Parar tela
                   </button>
                 </div>
               </>
@@ -328,8 +373,40 @@ function RoomView({ room, name }) {
                   <p className="hint">Depois você escolhe de quais janelas vem o som. O Discord fica de fora.</p>
                 </div>
               </>
-            ) : (
-              <p className="mobile-note">No celular dá pra assistir e conversar. Pra transmitir, abra a sala no computador.</p>
+            ) : null}
+
+            {canCam && (
+              <div className="option cam-option">
+                {r.cam ? (
+                  <div className="btn-row">
+                    {camCount > 1 && (
+                      <button className="btn" onClick={nextCamera}>
+                        Trocar câmera
+                      </button>
+                    )}
+                    <button className="btn danger" onClick={() => r.stopCam()}>
+                      Desligar câmera
+                    </button>
+                  </div>
+                ) : (
+                  <button className={`btn wide ${canShare ? "" : "primary"}`} onClick={() => shareCamera()} disabled={!r.selfId}>
+                    Ligar câmera
+                  </button>
+                )}
+                <label className="check">
+                  <input type="checkbox" checked={camMic} onChange={(e) => toggleCamMic(e.target.checked)} />
+                  Microfone junto com a câmera
+                </label>
+                {camMic && <p className="hint">Se vocês já estão em call no Discord, deixe desligado pra não ter eco.</p>}
+              </div>
+            )}
+
+            {!canShare && (
+              <p className="mobile-note">
+                {canCam
+                  ? "Pra transmitir a tela, abra a sala no computador."
+                  : "Aqui dá pra assistir e conversar. Pra transmitir, abra a sala no computador."}
+              </p>
             )}
             {err && <p className="err">{err}</p>}
           </section>
@@ -341,8 +418,8 @@ function RoomView({ room, name }) {
             <ul className="members">
               {sorted.map((m) => {
                 const me = m.id === r.selfId;
-                const watching = r.watching.has(m.id);
-                const n = m.watchers?.length || 0;
+                const watching = r.isWatching(m.id, "screen");
+                const nWatch = m.watchers?.length || 0;
                 return (
                   <li key={m.id}>
                     <Avatar name={m.name} />
@@ -354,13 +431,17 @@ function RoomView({ room, name }) {
                       {m.live && (
                         <span className="sub live">
                           ao vivo{m.hasAudio ? "" : " · sem áudio"}
-                          {n > 0 ? ` · ${n} assistindo` : ""}
+                          {nWatch > 0 ? ` · ${nWatch} assistindo` : ""}
                         </span>
                       )}
+                      {m.cam && <span className="sub">câmera ligada{m.camAudio ? " · microfone" : ""}</span>}
                     </span>
-                    {m.live && (
-                      <button className={`btn sm ${watching ? "" : "primary"}`} onClick={() => toggleWatch(m.id)}>
-                        {watching ? "Fechar" : me ? "Prévia" : "Assistir"}
+                    {m.live && !me && (
+                      <button
+                        className={`btn sm ${watching ? "" : "primary"}`}
+                        onClick={() => (watching ? r.unwatch(m.id, "screen") : watchScreen(m.id))}
+                      >
+                        {watching ? "Fechar" : "Assistir"}
                       </button>
                     )}
                   </li>
@@ -392,7 +473,10 @@ function RoomView({ room, name }) {
                   Texto / código
                 </button>
               </div>
-              <p className="hint">Você envia uma cópia pra cada pessoa que te assiste. Com muita gente, baixe a qualidade.</p>
+              <p className="hint">
+                Vale só pra tela (a câmera vai sempre leve). Você envia uma cópia pra cada pessoa que te assiste: com muita
+                gente, baixe a qualidade.
+              </p>
             </details>
           )}
 
@@ -404,8 +488,9 @@ function RoomView({ room, name }) {
   );
 }
 
-// ---------- uma transmissão ----------
-function Tile({ stream, label, self, hasAudio, failed, onRetry, onClose }) {
+// ---------- um quadro (tela compartilhada ou pessoa) ----------
+function Tile({ t, small, focused, onClick, onWatch, onUnwatch, onRetry }) {
+  const { kind, m, me, e, stream, hasAudio } = t;
   const videoRef = useRef(null);
   const wrapRef = useRef(null);
   const [vol, setVol] = useState(1);
@@ -422,24 +507,25 @@ function Tile({ stream, label, self, hasAudio, failed, onRetry, onClose }) {
     if (!v) return;
     v.srcObject = stream || null;
     if (!stream) return;
-    v.muted = self;
+    v.muted = me;
     v.play().catch(() => {
       // Navegador bloqueou som automático: toca mudo e pede um clique.
       v.muted = true;
       setBlocked(true);
       v.play().catch(() => {});
     });
-  }, [stream, self]);
+  }, [stream, me]);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     v.volume = vol;
-    if (!blocked) v.muted = self || muted;
+    if (!blocked) v.muted = me || muted;
     save("telinha:vol", String(vol));
-  }, [vol, muted, blocked, self]);
+  }, [vol, muted, blocked, me, stream]);
 
-  function unlock() {
+  function unlock(ev) {
+    ev?.stopPropagation();
     const v = videoRef.current;
     if (!v) return;
     v.muted = false;
@@ -448,62 +534,113 @@ function Tile({ stream, label, self, hasAudio, failed, onRetry, onClose }) {
     setMuted(false);
   }
 
-  function fullscreen() {
+  function fullscreen(ev) {
+    ev?.stopPropagation();
     if (document.fullscreenElement) document.exitFullscreen();
     else wrapRef.current?.requestFullscreen?.();
   }
 
+  const stop = (fn) => (ev) => {
+    ev.stopPropagation();
+    fn();
+  };
+
+  const isScreen = kind === "screen";
+  const label = me ? (isScreen ? "Sua tela" : `${m.name} (você)`) : isScreen ? `Tela de ${m.name}` : m.name;
   const silent = muted || blocked;
+  const loading = e && !e.failed && !stream;
+  const failed = !!e?.failed;
+
+  let body = null;
+  if (failed) {
+    body = (
+      <div className="tile-msg">
+        <p>Não deu pra conectar com {m.name}.{small ? "" : " A rede de um de vocês pode estar bloqueando a conexão."}</p>
+        <button className="btn sm primary" onClick={stop(onRetry)}>
+          Tentar de novo
+        </button>
+      </div>
+    );
+  } else if (isScreen && !me && !e) {
+    // tela de outra pessoa que eu ainda não abri
+    body = (
+      <div className="tile-msg">
+        <Avatar name={m.name} size={small ? 32 : 56} />
+        <button className={`btn ${small ? "sm" : ""} primary`} onClick={stop(onWatch)}>
+          Assistir
+        </button>
+      </div>
+    );
+  } else if (!isScreen && !stream) {
+    body = (
+      <div className="tile-msg">
+        <Avatar name={m.name} size={small ? 40 : 84} />
+        {loading && !small && <span className="hint">Conectando câmera…</span>}
+      </div>
+    );
+  } else if (loading) {
+    body = <div className="tile-msg hint">Conectando…</div>;
+  }
+
   return (
-    <figure className="tile" ref={wrapRef} onDoubleClick={fullscreen}>
-      <video ref={videoRef} autoPlay playsInline />
-      {!stream && !failed && <div className="loading">Conectando…</div>}
-      {failed && (
-        <div className="loading failed">
-          <p>Não deu pra conectar com {label}. A rede de um de vocês pode estar bloqueando a conexão.</p>
-          <button className="btn primary" onClick={onRetry}>
-            Tentar de novo
-          </button>
-        </div>
-      )}
-      <figcaption>
-        <span className="pill-live">AO VIVO</span>
-        <span className="tag">{label}</span>
-        {!self && !hasAudio && <span className="tag dim">sem áudio</span>}
+    <figure
+      ref={wrapRef}
+      className={`tile ${isScreen ? "screen" : "person"} ${small ? "small" : ""} ${focused ? "focused" : ""}`}
+      onClick={onClick}
+      onDoubleClick={stream ? fullscreen : undefined}
+      title={small ? label : undefined}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className={`${me && !isScreen ? "mirror" : ""} ${stream ? "" : "hidden"}`}
+      />
+      {body}
+
+      {isScreen && <span className="pill-live corner">AO VIVO</span>}
+      <figcaption className="name-tag">
+        {!isScreen && t.camOn && hasAudio && silent && <IconMute size={14} />}
+        <span>{label}</span>
       </figcaption>
-      {blocked && stream && (
+
+      {blocked && stream && !small && (
         <button className="unlock" onClick={unlock}>
           <IconVolume /> Clique para ativar o som
         </button>
       )}
-      <div className="controls">
-        {self ? (
-          <span className="hint">prévia sem som</span>
-        ) : hasAudio ? (
-          <>
-            <button
-              className="icon-btn"
-              aria-label={silent ? `Ativar som de ${label}` : `Silenciar ${label}`}
-              onClick={() => (blocked ? unlock() : setMuted((m) => !m))}
-            >
-              {silent ? <IconMute /> : <IconVolume />}
+
+      {!small && (stream || (isScreen && e)) && (
+        <div className="controls" onClick={(ev) => ev.stopPropagation()}>
+          {hasAudio && stream && (
+            <>
+              <button
+                className="icon-btn"
+                aria-label={silent ? `Ativar som de ${label}` : `Silenciar ${label}`}
+                onClick={() => (blocked ? unlock() : setMuted((x) => !x))}
+              >
+                {silent ? <IconMute /> : <IconVolume />}
+              </button>
+              <label style={{ display: "flex" }}>
+                <span className="sr-only">Volume de {label}</span>
+                <input type="range" min="0" max="1" step="0.01" value={vol} onChange={(ev) => setVol(parseFloat(ev.target.value))} />
+              </label>
+            </>
+          )}
+          {isScreen && !hasAudio && !me && stream && <span className="hint">sem áudio</span>}
+          <span className="spacer" />
+          {stream && (
+            <button className="icon-btn" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
+              <IconFull />
             </button>
-            <label style={{ display: "flex" }}>
-              <span className="sr-only">Volume de {label}</span>
-              <input type="range" min="0" max="1" step="0.01" value={vol} onChange={(e) => setVol(parseFloat(e.target.value))} />
-            </label>
-          </>
-        ) : (
-          <span className="hint">sem áudio</span>
-        )}
-        <span className="spacer" />
-        <button className="icon-btn" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
-          <IconFull />
-        </button>
-        <button className="icon-btn" onClick={onClose} aria-label={`Fechar transmissão de ${label}`} title="Fechar">
-          <IconX />
-        </button>
-      </div>
+          )}
+          {isScreen && !me && e && (
+            <button className="icon-btn" onClick={stop(onUnwatch)} aria-label={`Parar de assistir ${label}`} title="Parar de assistir">
+              <IconX />
+            </button>
+          )}
+        </div>
+      )}
     </figure>
   );
 }

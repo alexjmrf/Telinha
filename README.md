@@ -2,9 +2,10 @@
 
 Compartilhamento de tela entre amigos, no navegador, pra substituir o screen share do Discord.
 
-- Todo mundo na sala pode **transmitir ao mesmo tempo**; cada um escolhe quem quer assistir (até 4 lado a lado).
+- Todo mundo na sala pode **transmitir ao mesmo tempo**, em quadros lado a lado como numa chamada de vídeo. Clique num quadro pra deixar ele em destaque.
 - Escolhe **uma janela específica** (ou uma aba, ou a tela inteira).
 - Manda **o som só daquela janela**: Discord, notificações e o resto do PC não vazam.
+- **Webcam** junto com a tela (microfone opcional). Funciona também no celular, com troca entre câmera frontal e traseira.
 - Vídeo e áudio vão direto de PC pra PC (WebRTC). A Vercel só serve o site.
 
 ---
@@ -82,7 +83,7 @@ vercel --prod   (publica no endereço definitivo)
 1. Alguém clica **Criar sala** e manda o link (ou o código, tipo `gato-1234`).
 2. Cada um entra com um apelido.
 3. Quem quiser mostrar algo clica **Transmitir uma janela** → no seletor escolhe **Janela** (ou **Aba**) e deixa marcado **"Compartilhar áudio"**.
-4. Na lista "Na sala", clique **Assistir** em quem estiver AO VIVO. Dá pra abrir várias ao mesmo tempo; cada tela tem volume próprio, tela cheia (duplo clique) e ✕ para fechar.
+4. Cada pessoa aparece num quadro (câmera ou avatar) e cada tela compartilhada vira outro quadro. Clique **Assistir** no quadro de uma tela pra abrir. Clique num quadro pra destacar (os outros vão pra uma fileira embaixo), duplo clique pra tela cheia. Cada quadro tem volume próprio.
 
 ### Chat e TTS
 
@@ -130,7 +131,7 @@ Quem **assiste** pode usar qualquer navegador moderno.
 ## Como a sala funciona por dentro
 
 - O primeiro a entrar vira o "anfitrião" invisível da sala: ele só guarda a lista de quem está lá e quem está ao vivo. Se ele sair, outro assume sozinho em ~2 s.
-- Para assistir alguém você abre conexão direta com essa pessoa. Quem transmite manda **uma cópia para cada pessoa que abriu a transmissão dele**; quem não abriu não gasta nada.
+- Para assistir alguém você abre conexão direta com essa pessoa. Quem transmite manda **uma cópia para cada pessoa que abriu a tela dele**; quem não abriu não gasta nada. As câmeras abrem sozinhas pra todo mundo, mas vão leves (360p, ~0,6 Mbps por pessoa).
 
 ## Limites e configurações opcionais
 
