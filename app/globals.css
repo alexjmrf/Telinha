@@ -217,6 +217,9 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .tile video.mirror { transform: scaleX(-1); }
 .tile:fullscreen { border-radius: 0; aspect-ratio: auto; cursor: default; }
 .tile:fullscreen video { object-fit: contain; }
+.tile.zoomed { cursor: grab; }
+.tile.zoomed:active { cursor: grabbing; }
+.tile.zoomed video { will-change: transform; }
 
 .tile-msg {
   position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 12px;

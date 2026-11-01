@@ -8,6 +8,7 @@ import { QUALITY, cameraOptions, displayOptions, normalizeRoom, turnStatus } fro
 import { colorFor, initial } from "@/lib/colors";
 import { ScreenMix, audioSourceOptions, screenVideoOptions } from "@/lib/capture";
 import { useBlackFrames } from "@/lib/useBlackFrames";
+import { useZoom } from "@/lib/useZoom";
 import Chat, { speak, useTts } from "./Chat";
 import { IconCopy, IconFull, IconMute, IconVolume, IconX, Logo } from "../../icons";
 
@@ -589,6 +590,8 @@ function Tile({ t, small, focused, onClick, onWatch, onUnwatch, onRetry }) {
   const label = me ? (isScreen ? "Sua tela" : `${m.name} (você)`) : isScreen ? `Tela de ${m.name}` : m.name;
   // só vale pra tela dos outros (câmera escura é normal; a minha tela tem aviso próprio)
   const black = useBlackFrames(isScreen && !me ? stream : null);
+  // zoom com a rodinha / pinça: só nas telas, e não nos quadradinhos da fileira
+  const zoom = useZoom(wrapRef, isScreen && !small && !!stream);
   const silent = muted || blocked;
   const loading = e && !e.failed && !stream;
   const failed = !!e?.failed;
@@ -627,15 +630,18 @@ function Tile({ t, small, focused, onClick, onWatch, onUnwatch, onRetry }) {
   return (
     <figure
       ref={wrapRef}
-      className={`tile ${isScreen ? "screen" : "person"} ${small ? "small" : ""} ${focused ? "focused" : ""}`}
-      onClick={onClick}
+      className={`tile ${isScreen ? "screen" : "person"} ${small ? "small" : ""} ${focused ? "focused" : ""} ${zoom.zoomed ? "zoomed" : ""}`}
+      // com zoom, clicar/arrastar mexe na imagem e não tira o quadro do destaque
+      onClick={() => !zoom.wasDrag() && !zoom.zoomed && onClick()}
       onDoubleClick={stream ? fullscreen : undefined}
       title={small ? label : undefined}
+      style={zoom.boxStyle}
     >
       <video
         ref={videoRef}
         autoPlay
         playsInline
+        style={zoom.videoStyle}
         className={`${me && !isScreen ? "mirror" : ""} ${stream ? "" : "hidden"}`}
       />
       {body}
@@ -678,6 +684,11 @@ function Tile({ t, small, focused, onClick, onWatch, onUnwatch, onRetry }) {
           )}
           {isScreen && !hasAudio && !me && stream && <span className="hint">sem áudio</span>}
           <span className="spacer" />
+          {zoom.zoomed && (
+            <button className="btn sm" onClick={zoom.reset} title="Voltar ao tamanho normal" aria-label="Tirar o zoom">
+              {zoom.scale.toFixed(1)}x · voltar
+            </button>
+          )}
           {stream && (
             <button className="icon-btn" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
               <IconFull />
